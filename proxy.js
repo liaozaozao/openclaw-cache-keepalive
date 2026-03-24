@@ -39,8 +39,9 @@ const STARTED_AT = Date.now();
 
 // --- Configuration ---
 // These are set once at startup and NOT hot-reloadable (require restart):
+// Priority: env var > config file > default
 let UPSTREAM_URL = process.env.UPSTREAM_URL || '';
-let PORT = parseInt(process.env.PORT || '8899');
+let PORT = process.env.PORT ? parseInt(process.env.PORT) : 0;
 
 // These ARE hot-reloadable via config.conf:
 let KEEPALIVE_MS = parseInt(process.env.KEEPALIVE_MS || '270000');   // 4m30s
@@ -76,6 +77,9 @@ function reloadConf() {
 
 // Initial config load
 reloadConf();
+
+// Apply defaults for startup-only config
+if (!PORT) PORT = 8899;
 
 // Validate required config
 if (!UPSTREAM_URL) {
@@ -541,6 +545,21 @@ const server = http.createServer((cReq, cRes) => {
     pReq.end();
   });
 });
+
+// Periodic cleanup of expired sessions (including excluded ones without keepalive timers)
+setInterval(() => {
+  const now = Date.now();
+  let cleaned = 0;
+  for (const [sid, s] of sessions) {
+    if (now - s.lastActive > EXPIRE_MS) {
+      if (s.timer) clearTimeout(s.timer);
+      sessions.delete(sid);
+      cleaned++;
+      LOG('cleanup', sid, 'removed expired session');
+    }
+  }
+  if (cleaned > 0) LOG('cleanup', '-', `removed ${cleaned} expired session(s), ${sessions.size} remaining`);
+}, Math.min(EXPIRE_MS, 600000)); // At least every 10 minutes
 
 server.listen(PORT, '127.0.0.1', () => {
   LOG('start', '-', `listening :${PORT} → ${UPSTREAM.origin} (keepalive=${KEEPALIVE_MS / 1000}s, expire=${EXPIRE_MS / 1000}s)`);
