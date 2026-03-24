@@ -29,6 +29,7 @@ const crypto = require('crypto');
 const { URL } = require('url');
 const fs = require('fs');
 const path = require('path');
+const LOG = (tag, sid, msg) => console.log(`[${new Date().toISOString()}] [${tag}] [${sid || '-'}] ${msg}`);
 
 // --- Constants ---
 const CONF_FILE = process.env.CONF_FILE || path.join(__dirname, 'config.conf');
@@ -86,7 +87,6 @@ if (!UPSTREAM_URL) {
 const UPSTREAM = new URL(UPSTREAM_URL);
 const UP_PROTO = UPSTREAM.protocol === 'https:' ? https : http;
 const UP_PORT = UPSTREAM.port || (UPSTREAM.protocol === 'https:' ? 443 : 80);
-const LOG = (tag, sid, msg) => console.log(`[${new Date().toISOString()}] [${tag}] [${sid || '-'}] ${msg}`);
 
 // Hot-reload on file change and SIGHUP
 process.on('SIGHUP', reloadConf);
