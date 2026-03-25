@@ -41,12 +41,25 @@ if [[ "${1:-}" == "--uninstall" || "${1:-}" == "uninstall" ]]; then
     fi
   fi
 
+  # 删除 systemd 服务文件（即使 systemctl 不可用也删文件本身）
+  if [ -f "${SERVICE_DIR}/${SERVICE_NAME}.service" ]; then
+    rm -f "${SERVICE_DIR}/${SERVICE_NAME}.service"
+    echo -e "  ${GREEN}✓${NC} 服务文件已删除"
+  fi
+
   # 删除安装目录
   if [ -d "${INSTALL_DIR}" ]; then
     rm -rf "${INSTALL_DIR}"
     echo -e "  ${GREEN}✓${NC} 已删除 ${INSTALL_DIR}"
   else
     echo -e "  ${YELLOW}!${NC} ${INSTALL_DIR} 不存在，跳过"
+  fi
+
+  # 删除可选插件
+  PLUGIN_UNINSTALL_DIR="${HOME}/.openclaw/extensions/cache-status-cmd"
+  if [ -d "${PLUGIN_UNINSTALL_DIR}" ]; then
+    rm -rf "${PLUGIN_UNINSTALL_DIR}"
+    echo -e "  ${GREEN}✓${NC} 已删除 /cache 插件"
   fi
 
   echo ""

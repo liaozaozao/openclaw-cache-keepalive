@@ -186,6 +186,8 @@ systemctl --user restart cache-keepalive-proxy
 
 手动安装：将 `extras/cache-status-cmd/` 复制到 `~/.openclaw/extensions/`，重启 OpenClaw。
 
+> **注意**：`/cache` 显示的是代理的全局状态（所有活跃会话），不限于当前聊天。适合个人使用场景。如果多人共享同一个 OpenClaw 实例，请注意其他用户可能看到会话活动信息。
+
 ## 缓存保活时长
 
 最后一条消息发出后，缓存保持有效的时间线：

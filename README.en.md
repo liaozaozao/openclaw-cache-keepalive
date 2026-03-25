@@ -155,6 +155,8 @@ If you install the optional `/cache` command during setup, you can type `/cache`
 
 Manual install: copy `extras/cache-status-cmd/` to `~/.openclaw/extensions/`, restart OpenClaw.
 
+> **Note**: `/cache` shows global proxy status (all active sessions), not just the current chat. Suitable for personal use. On shared OpenClaw instances, other users may see session activity info.
+
 ## Known Limitations
 
 - **Non-OpenClaw clients**: Session identification falls back to hash-based bucketing. Keepalive granularity may be coarse.

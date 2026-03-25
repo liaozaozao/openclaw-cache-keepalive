@@ -1,7 +1,7 @@
 "use strict";
 
 const path = require("path");
-const { execSync } = require("child_process");
+const { execFileSync } = require("child_process");
 
 const plugin = {
   id: "cache-status-cmd",
@@ -18,7 +18,7 @@ const plugin = {
         try {
           // 脚本路径相对于插件目录
           const scriptPath = path.join(__dirname, "cache-status");
-          const output = execSync(scriptPath, {
+          const output = execFileSync(scriptPath, [], {
             timeout: 5000,
             encoding: "utf-8",
           });

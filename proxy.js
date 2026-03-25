@@ -569,7 +569,7 @@ function handleStatus(req, res) {
   } : { configured: false, hint: 'Set COST_CACHE_WRITE_PER_MTOK and COST_CACHE_READ_PER_MTOK in config.conf to enable cost tracking' };
 
   const result = {
-    version: '1.4.0',
+    version: '1.5.0',
     uptime: formatDuration(now - STARTED_AT),
     startedAt: new Date(STARTED_AT).toISOString(),
     now: new Date(now).toISOString(),
@@ -713,7 +713,7 @@ server.on('error', (e) => {
 });
 
 server.listen(PORT, '127.0.0.1', () => {
-  LOG('start', '-', `v1.4.0 listening :${PORT} → ${UPSTREAM.origin}${UP_BASE_PATH} (keepalive=${KEEPALIVE_MS / 1000}s, expire=${EXPIRE_MS / 1000}s)`);
+  LOG('start', '-', `v1.5.0 listening :${PORT} → ${UPSTREAM.origin}${UP_BASE_PATH} (keepalive=${KEEPALIVE_MS / 1000}s, expire=${EXPIRE_MS / 1000}s)`);
 });
 
 // Graceful shutdown

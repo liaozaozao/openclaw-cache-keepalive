@@ -4,9 +4,23 @@ import json, sys, os, urllib.request, urllib.error, hashlib, time
 from datetime import datetime, timezone, timedelta
 
 TZ = timezone(timedelta(hours=8))
-CACHE_DIR = os.path.expanduser("~/.openclaw/cache-keepalive-proxy/.name-cache")
+PROXY_DIR = os.path.expanduser("~/.openclaw/cache-keepalive-proxy")
+CACHE_DIR = os.path.join(PROXY_DIR, ".name-cache")
 TOKEN_FILE = os.path.join(CACHE_DIR, "token.json")
 NAME_CACHE_TTL = 3600
+
+def get_proxy_port():
+    """从 config.conf 读取端口，默认 8899"""
+    conf = os.path.join(PROXY_DIR, "config.conf")
+    try:
+        with open(conf) as f:
+            for line in f:
+                if line.startswith("PORT="):
+                    p = line.strip().split("=", 1)[1]
+                    if p.isdigit():
+                        return int(p)
+    except: pass
+    return 8899
 
 # 模型上下文窗口（tokens）
 MODEL_CTX = {
@@ -124,7 +138,8 @@ def estimate_context(s):
 # ── 主逻辑 ──
 
 try:
-    with urllib.request.urlopen('http://127.0.0.1:8899/status', timeout=3) as r:
+    port = get_proxy_port()
+    with urllib.request.urlopen(f'http://127.0.0.1:{port}/status', timeout=3) as r:
         d = json.loads(r.read())
 except Exception as e:
     print(f"❌ 代理不可用: {e}")
