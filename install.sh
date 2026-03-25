@@ -15,7 +15,7 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 print_header() {
   echo ""
@@ -25,6 +25,21 @@ print_header() {
   echo ""
   echo "  自动保活 Anthropic Prompt Cache，避免缓存过期导致的重复建缓费用。"
   echo ""
+}
+
+# Safely write a key=value to config file (avoids sed injection)
+write_config_value() {
+  local key="$1" value="$2" file="$3"
+  local tmpfile
+  tmpfile=$(mktemp)
+  while IFS= read -r line; do
+    if [[ "$line" =~ ^${key}= ]]; then
+      echo "${key}=${value}"
+    else
+      echo "$line"
+    fi
+  done < "$file" > "$tmpfile"
+  mv "$tmpfile" "$file"
 }
 
 print_header
@@ -48,12 +63,17 @@ if [ "$NODE_VERSION" -lt 18 ]; then
 fi
 echo -e "  ${GREEN}✓${NC} Node.js $(node -v)"
 
-# systemd
+# systemd (check if user-level systemd actually works, not just if binary exists)
+NO_SYSTEMD=0
 if ! command -v systemctl &>/dev/null; then
-  echo -e "  ${YELLOW}!${NC} 未检测到 systemd，将跳过服务注册（你需要手动管理进程）"
+  echo -e "  ${YELLOW}!${NC} 未检测到 systemd，将跳过服务注册"
+  NO_SYSTEMD=1
+elif ! systemctl --user is-system-running &>/dev/null 2>&1; then
+  echo -e "  ${YELLOW}!${NC} 用户级 systemd 不可用（可能在容器或 SSH 非登录会话中）"
+  echo "    将跳过服务注册，你需要手动管理进程"
   NO_SYSTEMD=1
 else
-  echo -e "  ${GREEN}✓${NC} systemd"
+  echo -e "  ${GREEN}✓${NC} systemd（用户级）"
 fi
 
 echo ""
@@ -78,7 +98,8 @@ if [ -f "${INSTALL_DIR}/config.conf" ]; then
   echo -e "  ${GREEN}✓${NC} config.conf 已存在，保留现有配置"
 else
   cp "${SCRIPT_DIR}/config.example.conf" "${INSTALL_DIR}/config.conf"
-  echo -e "  ${GREEN}✓${NC} 已创建 config.conf"
+  chmod 600 "${INSTALL_DIR}/config.conf"
+  echo -e "  ${GREEN}✓${NC} 已创建 config.conf（权限 600）"
 
   # 交互式配置
   if [ -t 0 ]; then
@@ -91,28 +112,27 @@ else
 
     # UPSTREAM_URL
     while true; do
-      read -rp "  上游 API 地址 (如 https://api.anthropic.com): " UPSTREAM_URL
-      if [ -z "$UPSTREAM_URL" ]; then
+      read -rp "  上游 API 地址 (如 https://api.anthropic.com): " INPUT_URL
+      if [ -z "$INPUT_URL" ]; then
         echo -e "  ${YELLOW}!${NC} 上游地址不能为空，这是代理的必填配置"
         continue
       fi
-      # 校验 URL 格式
-      if [[ ! "$UPSTREAM_URL" =~ ^https?:// ]]; then
+      if [[ ! "$INPUT_URL" =~ ^https?:// ]]; then
         echo -e "  ${YELLOW}!${NC} 地址必须以 http:// 或 https:// 开头"
         continue
       fi
       break
     done
-    sed -i "s|^UPSTREAM_URL=.*|UPSTREAM_URL=${UPSTREAM_URL}|" "${INSTALL_DIR}/config.conf"
+    write_config_value "UPSTREAM_URL" "$INPUT_URL" "${INSTALL_DIR}/config.conf"
     echo -e "  ${GREEN}✓${NC} 上游地址已设置"
 
     # PORT
     echo ""
-    read -rp "  代理监听端口 [默认 8899]: " CUSTOM_PORT
-    if [ -n "$CUSTOM_PORT" ]; then
-      if [[ "$CUSTOM_PORT" =~ ^[0-9]+$ ]] && [ "$CUSTOM_PORT" -ge 1 ] && [ "$CUSTOM_PORT" -le 65535 ]; then
-        sed -i "s|^PORT=.*|PORT=${CUSTOM_PORT}|" "${INSTALL_DIR}/config.conf"
-        echo -e "  ${GREEN}✓${NC} 端口设为 ${CUSTOM_PORT}"
+    read -rp "  代理监听端口 [默认 8899]: " INPUT_PORT
+    if [ -n "$INPUT_PORT" ]; then
+      if [[ "$INPUT_PORT" =~ ^[0-9]+$ ]] && [ "$INPUT_PORT" -ge 1 ] && [ "$INPUT_PORT" -le 65535 ]; then
+        write_config_value "PORT" "$INPUT_PORT" "${INSTALL_DIR}/config.conf"
+        echo -e "  ${GREEN}✓${NC} 端口设为 ${INPUT_PORT}"
       else
         echo -e "  ${YELLOW}!${NC} 端口无效，使用默认 8899"
       fi
@@ -123,15 +143,15 @@ else
     echo "  ── 告警配置（可选，直接回车跳过）──"
     echo ""
 
-    read -rp "  飞书告警群 chat_id (oc_xxx 格式): " ALERT_CHAT_ID
-    if [ -n "$ALERT_CHAT_ID" ]; then
-      sed -i "s|^ALERT_CHAT_ID=.*|ALERT_CHAT_ID=${ALERT_CHAT_ID}|" "${INSTALL_DIR}/config.conf"
+    read -rp "  飞书告警群 chat_id (oc_xxx 格式): " INPUT_CHAT_ID
+    if [ -n "$INPUT_CHAT_ID" ]; then
+      write_config_value "ALERT_CHAT_ID" "$INPUT_CHAT_ID" "${INSTALL_DIR}/config.conf"
       echo -e "  ${GREEN}✓${NC} 飞书告警已配置"
     fi
 
-    read -rp "  Webhook 告警 URL (Slack/Discord/自定义): " ALERT_WEBHOOK_URL
-    if [ -n "$ALERT_WEBHOOK_URL" ]; then
-      sed -i "s|^ALERT_WEBHOOK_URL=.*|ALERT_WEBHOOK_URL=${ALERT_WEBHOOK_URL}|" "${INSTALL_DIR}/config.conf"
+    read -rp "  Webhook 告警 URL (Slack/Discord/自定义): " INPUT_WEBHOOK
+    if [ -n "$INPUT_WEBHOOK" ]; then
+      write_config_value "ALERT_WEBHOOK_URL" "$INPUT_WEBHOOK" "${INSTALL_DIR}/config.conf"
       echo -e "  ${GREEN}✓${NC} Webhook 告警已配置"
     fi
   else
@@ -141,10 +161,10 @@ else
   fi
 fi
 
-# 读取最终配置
-FINAL_PORT=$(grep '^PORT=' "${INSTALL_DIR}/config.conf" 2>/dev/null | cut -d= -f2)
+# 读取最终配置（安全方式，不 source）
+FINAL_PORT=$(grep '^PORT=' "${INSTALL_DIR}/config.conf" 2>/dev/null | head -1 | cut -d= -f2-)
 FINAL_PORT="${FINAL_PORT:-8899}"
-source <(grep '^UPSTREAM_URL=' "${INSTALL_DIR}/config.conf" 2>/dev/null) || true
+FINAL_UPSTREAM=$(grep '^UPSTREAM_URL=' "${INSTALL_DIR}/config.conf" 2>/dev/null | head -1 | cut -d= -f2-)
 
 echo ""
 
@@ -153,7 +173,13 @@ echo ""
 echo -e "${BOLD}[4/4] 注册服务${NC}"
 echo ""
 
-if [ "${NO_SYSTEMD:-0}" = "1" ]; then
+NODE_BIN="$(command -v node)"
+if [ -z "$NODE_BIN" ]; then
+  echo -e "  ${RED}✗${NC} 找不到 node 可执行文件"
+  exit 1
+fi
+
+if [ "${NO_SYSTEMD}" = "1" ]; then
   echo -e "  ${YELLOW}!${NC} 跳过 systemd 配置"
   echo "  手动启动: node ${INSTALL_DIR}/proxy.js"
 else
@@ -166,7 +192,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=$(which node) ${INSTALL_DIR}/proxy.js
+ExecStart=${NODE_BIN} ${INSTALL_DIR}/proxy.js
 ExecReload=/bin/kill -HUP \$MAINPID
 Restart=on-failure
 RestartSec=5
@@ -178,17 +204,22 @@ EOF
 
   systemctl --user daemon-reload
   systemctl --user enable "${SERVICE_NAME}" 2>/dev/null
-  echo -e "  ${GREEN}✓${NC} systemd 用户服务已创建并启用（开机自启）"
+  echo -e "  ${GREEN}✓${NC} systemd 用户服务已创建并启用（随登录自动启动）"
+
+  # 提示 linger
+  if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q "Linger=yes"; then
+    echo -e "  ${YELLOW}提示${NC}: 如需开机即启动（不登录也运行），执行："
+    echo "    sudo loginctl enable-linger $(whoami)"
+  fi
 
   # 启动
-  if [ -n "$UPSTREAM_URL" ]; then
+  if [ -n "$FINAL_UPSTREAM" ]; then
     systemctl --user restart "${SERVICE_NAME}"
     sleep 1
 
     if systemctl --user is-active "${SERVICE_NAME}" &>/dev/null; then
       echo -e "  ${GREEN}✓${NC} 代理已启动"
 
-      # 验证
       if curl -sf "http://127.0.0.1:${FINAL_PORT}/status" >/dev/null 2>&1; then
         echo -e "  ${GREEN}✓${NC} 健康检查通过 (端口 ${FINAL_PORT})"
       fi
@@ -221,5 +252,5 @@ echo "  3. 发几条消息后，查看缓存状态："
 echo -e "     ${CYAN}curl http://127.0.0.1:${FINAL_PORT}/status | python3 -m json.tool${NC}"
 echo ""
 echo -e "  配置文件: ${INSTALL_DIR}/config.conf"
-echo "  (修改后自动生效，无需重启；UPSTREAM_URL 和 PORT 除外)"
+echo "  (多数配置修改后自动生效；UPSTREAM_URL 和 PORT 需重启服务)"
 echo ""

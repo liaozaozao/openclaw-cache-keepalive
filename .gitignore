@@ -2,3 +2,4 @@ config.conf
 .alerts.jsonl
 .name-cache/
 node_modules/
+.ace-tool/
