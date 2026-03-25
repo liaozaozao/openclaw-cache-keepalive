@@ -49,9 +49,9 @@ Assuming 5 conversation gaps per day:
 | 200K | ~$16 | **~$480** |
 | 300K | ~$24 | **~$720** |
 
-### Why It Never Loses Money
+### Why It Almost Never Loses Money
 
-The proxy stops after 20 minutes of inactivity — at most 4 keepalives. One cache rebuild costs 12.5 keepalives. **Avoiding just one rebuild pays for everything.**
+The proxy stops after 20 minutes of inactivity — at most 4 keepalives. One cache rebuild costs 12.5 keepalives. **Avoiding just one rebuild covers up to 12.5 keepalives worth of cost.**
 
 > Configure cost rates and `/status` will track estimated savings (upper-bound).
 
