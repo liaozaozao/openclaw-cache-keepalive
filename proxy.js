@@ -304,7 +304,9 @@ function buildHeaders(src) {
     const kl = k.toLowerCase();
     if (kl === 'host' || kl === 'content-length' || kl === 'connection' ||
         kl === 'transfer-encoding' || kl === 'keep-alive' || kl === 'upgrade' ||
-        kl === 'content-type') continue;
+        kl === 'content-type' || kl === 'te' || kl === 'trailer' ||
+        kl === 'proxy-authorization' || kl === 'proxy-authenticate' ||
+        kl === 'proxy-connection') continue;
     // Forward everything else (covers x-api-*, anthropic*, authorization, api-key, cf-access-*, etc.)
     h[k] = src[k];
   }
@@ -314,10 +316,14 @@ function buildHeaders(src) {
 // Resolve upstream path preserving base path, avoiding segment duplication.
 // e.g. base=/v1, request=/v1/messages → /v1/messages (not /v1/v1/messages)
 // e.g. base=/anthropic, request=/v1/messages → /anthropic/v1/messages
+// e.g. base=/v1, request=/v1?foo=1 → /v1?foo=1 (not /v1/v1?foo=1)
 function resolveUpstreamPath(requestPath) {
   if (!UP_BASE_PATH || UP_BASE_PATH === '') return requestPath;
-  // If request path already starts with the base path (segment-aligned), don't prepend
-  if (requestPath === UP_BASE_PATH || requestPath.startsWith(UP_BASE_PATH + '/')) {
+  // Split off query string to compare only the pathname portion
+  const qIdx = requestPath.indexOf('?');
+  const pathname = qIdx >= 0 ? requestPath.slice(0, qIdx) : requestPath;
+  // If pathname already starts with the base path (segment-aligned), don't prepend
+  if (pathname === UP_BASE_PATH || pathname.startsWith(UP_BASE_PATH + '/')) {
     return requestPath;
   }
   return UP_BASE_PATH + requestPath;
@@ -629,9 +635,12 @@ const server = http.createServer((cReq, cRes) => {
 
       // Only cache session after upstream stream completes successfully
       if (sid && pRes.statusCode >= 200 && pRes.statusCode < 300) {
-        // Wait for stream to fully complete before starting keepalive.
-        // This prevents caching sessions where upstream returned 200 but
-        // the stream was aborted mid-way (e.g., network issues, client disconnect).
+        // Wait for the upstream response stream to fully complete before starting
+        // keepalive. This prevents caching sessions where upstream returned 200 but
+        // the stream was aborted mid-way (e.g., upstream network issues, partial
+        // response). We intentionally do NOT gate on downstream (client) completion:
+        // if upstream delivered a full response, the cache is valid regardless of
+        // whether the client consumed it.
         pRes.on('close', () => {
           if (!pRes.complete) {
             LOG('proxy', sid, `stream incomplete (status=${pRes.statusCode}), not caching session`);
