@@ -25,8 +25,8 @@ Using Opus with ~200K token context:
 | Scenario | Cost |
 |----------|------|
 | **No proxy**: 6-minute break, cache expires and rebuilds | **$3.75** |
-| **With proxy**: Same break, one keepalive fired, cache intact | **$0.60** |
-| **Saved in one coffee break** | **$3.15** |
+| **With proxy**: Same break, one keepalive fired, cache intact | **$0.30** |
+| **Saved in one coffee break** | **$3.45** |
 
 ### Savings by Context Size
 
@@ -34,10 +34,10 @@ Per avoided cache rebuild (Opus rates):
 
 | Context | Rebuild Cost | Keepalive Cost | 💰 Saved |
 |---------|-------------|----------------|----------|
-| 50K | $0.94 | ~$0.15 | **$0.79** |
-| 100K | $1.88 | ~$0.30 | **$1.58** |
-| 200K | $3.75 | ~$0.60 | **$3.15** |
-| 300K | $5.63 | ~$0.90 | **$4.73** |
+| 50K | $0.94 | ~$0.08 | **$0.86** |
+| 100K | $1.88 | ~$0.15 | **$1.73** |
+| 200K | $3.75 | ~$0.30 | **$3.45** |
+| 300K | $5.63 | ~$0.45 | **$5.18** |
 
 ### Daily Estimate
 

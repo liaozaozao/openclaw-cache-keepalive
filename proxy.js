@@ -704,6 +704,14 @@ setInterval(() => {
   if (cleaned > 0) LOG('cleanup', '-', `removed ${cleaned} expired session(s), ${sessions.size} remaining`);
 }, Math.min(EXPIRE_MS, 600000));
 
+server.on('error', (e) => {
+  if (e.code === 'EADDRINUSE') {
+    console.error(`ERROR: Port ${PORT} is already in use. Is another instance running?`);
+    process.exit(1);
+  }
+  throw e;
+});
+
 server.listen(PORT, '127.0.0.1', () => {
   LOG('start', '-', `v1.4.0 listening :${PORT} → ${UPSTREAM.origin}${UP_BASE_PATH} (keepalive=${KEEPALIVE_MS / 1000}s, expire=${EXPIRE_MS / 1000}s)`);
 });
