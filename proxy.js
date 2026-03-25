@@ -527,7 +527,7 @@ function handleStatus(req, res) {
       keepaliveCount: kaCount,
       totalCacheRead: totalRead, totalCacheReadHuman: formatTokens(totalRead),
       totalCacheWrite: totalWrite, totalCacheWriteHuman: formatTokens(totalWrite),
-      cacheHitRate: kaCount > 0
+      cacheReadRatio: kaCount > 0
         ? (totalWrite === 0 ? '100%' : `${Math.round((totalRead / (totalRead + totalWrite)) * 100)}%`)
         : 'N/A'
     });
@@ -585,13 +585,13 @@ function handleStatus(req, res) {
       list: sessionList
     },
     totals: {
-      keepalivesSent: globalKeepaliveCount,
+      keepaliveCycles: globalKeepaliveCount,
       rebuildsAvoided: globalRebuildsAvoided,
       totalCacheRead: globalTotalCacheRead,
       totalCacheReadHuman: formatTokens(globalTotalCacheRead),
       totalCacheWrite: globalTotalCacheWrite,
       totalCacheWriteHuman: formatTokens(globalTotalCacheWrite),
-      cacheHitRate: globalKeepaliveCount > 0
+      cacheReadRatio: globalKeepaliveCount > 0
         ? (globalTotalCacheWrite === 0 ? '100%' : `${Math.round((globalTotalCacheRead / (globalTotalCacheRead + globalTotalCacheWrite)) * 100)}%`)
         : 'N/A'
     },

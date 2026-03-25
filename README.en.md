@@ -53,7 +53,7 @@ Assuming 5 conversation gaps per day:
 
 The proxy stops after 20 minutes of inactivity — at most 4 keepalives. One cache rebuild costs 12.5 keepalives. **Avoiding just one rebuild pays for everything.**
 
-> Configure cost rates and `/status` will track actual savings automatically.
+> Configure cost rates and `/status` will track estimated savings (upper-bound).
 
 ## How It Works
 
@@ -61,7 +61,7 @@ The proxy stops after 20 minutes of inactivity — at most 4 keepalives. One cac
 OpenClaw → localhost:8899 (this proxy) → Your Anthropic API upstream
                 │
                 ├── Forwards all requests normally
-                ├── Caches request body per session (after upstream 2xx)
+                ├── Caches request body per session (after upstream 2xx + stream complete)
                 └── Every 4.5 min → sends max_tokens=1 keepalive
                     → Refreshes cache TTL, preserves existing cache
 ```
