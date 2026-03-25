@@ -239,13 +239,21 @@ systemctl --user stop cache-keepalive-proxy
 # 把 OpenClaw 的 API 地址改回上游，重启 gateway
 ```
 
-**完全卸载**：
+**完全卸载**（推荐用脚本）：
+```bash
+./install.sh --uninstall
+# 然后把 OpenClaw 的 API 地址改回原来的上游，重启 gateway
+```
+
+手动卸载：
 ```bash
 systemctl --user stop cache-keepalive-proxy
 systemctl --user disable cache-keepalive-proxy
 rm -rf ~/.openclaw/cache-keepalive-proxy
+rm -rf ~/.openclaw/extensions/cache-status-cmd
 rm ~/.config/systemd/user/cache-keepalive-proxy.service
 systemctl --user daemon-reload
+# 把 OpenClaw 的 API 地址改回原来的上游，重启 gateway
 ```
 
 ## 许可证

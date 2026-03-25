@@ -24,7 +24,13 @@ if [[ "${1:-}" == "--uninstall" || "${1:-}" == "uninstall" ]]; then
   echo -e "${BOLD}卸载 OpenClaw Cache Keepalive Proxy${NC}"
   echo ""
 
-  # 停止并禁用服务
+  # 停止运行中的进程（手动启动或 systemd）
+  if pgrep -f "node.*proxy\.js" >/dev/null 2>&1; then
+    pkill -f "node.*proxy\.js" 2>/dev/null || true
+    echo -e "  ${GREEN}✓${NC} 已终止运行中的代理进程"
+  fi
+
+  # 停止并禁用 systemd 服务
   if command -v systemctl &>/dev/null; then
     if systemctl --user is-active "${SERVICE_NAME}" &>/dev/null 2>&1; then
       systemctl --user stop "${SERVICE_NAME}" 2>/dev/null || true

@@ -166,13 +166,21 @@ Manual install: copy `extras/cache-status-cmd/` to `~/.openclaw/extensions/`, re
 
 **Bypass**: `systemctl --user stop cache-keepalive-proxy`, revert your API URL.
 
-**Uninstall**:
+**Uninstall** (recommended):
+```bash
+./install.sh --uninstall
+# Then revert your OpenClaw API URL to the original upstream and restart gateway
+```
+
+Manual uninstall:
 ```bash
 systemctl --user stop cache-keepalive-proxy
 systemctl --user disable cache-keepalive-proxy
 rm -rf ~/.openclaw/cache-keepalive-proxy
+rm -rf ~/.openclaw/extensions/cache-status-cmd
 rm ~/.config/systemd/user/cache-keepalive-proxy.service
 systemctl --user daemon-reload
+# Revert OpenClaw API URL and restart gateway
 ```
 
 ## License
