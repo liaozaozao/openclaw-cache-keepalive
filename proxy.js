@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * OpenClaw Cache Keepalive Proxy v1.4
+ * OpenClaw Cache Keepalive Proxy v1.5
  *
  * Reverse proxy between OpenClaw and Anthropic API upstream.
  * Automatically sends keepalive requests to prevent prompt cache TTL expiry.
