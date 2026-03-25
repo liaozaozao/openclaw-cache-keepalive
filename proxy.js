@@ -370,9 +370,14 @@ function sendKeepalive(sid, isRetry = false) {
     `sending body_len=${payload.length} model=${kaBody.model}${isRetry ? ' (RETRY)' : ''}`);
 
   const upPath = resolveUpstreamPath(s.path);
+  // Strip accept-encoding from keepalive headers to ensure plain-text JSON response.
+  // The stored session headers may include accept-encoding from the original client,
+  // which could cause upstream to return gzip/br that we can't JSON.parse.
+  const kaHeaders = { ...s.headers, 'content-length': Buffer.byteLength(payload) };
+  delete kaHeaders['accept-encoding'];
   const req = UP_PROTO.request({
     hostname: UPSTREAM.hostname, port: UP_PORT, path: upPath, method: 'POST',
-    headers: { ...s.headers, 'content-length': Buffer.byteLength(payload) }
+    headers: kaHeaders
   }, (res) => {
     let d = '';
     res.on('data', c => d += c);
