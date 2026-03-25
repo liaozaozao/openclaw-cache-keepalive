@@ -56,14 +56,14 @@ let COST_CACHE_READ_PER_MTOK = 0;  // e.g. 1.50 for Opus
 
 // Apply env vars for hot-reloadable fields (env > config file)
 function applyEnvOverrides() {
-  if (process.env.KEEPALIVE_MS) KEEPALIVE_MS = parseInt(process.env.KEEPALIVE_MS);
-  if (process.env.EXPIRE_MS) EXPIRE_MS = parseInt(process.env.EXPIRE_MS);
-  if (process.env.RETRY_DELAY_MS) RETRY_DELAY_MS = parseInt(process.env.RETRY_DELAY_MS);
+  if (process.env.KEEPALIVE_MS) KEEPALIVE_MS = validatePositive('KEEPALIVE_MS', parseInt(process.env.KEEPALIVE_MS), KEEPALIVE_MS);
+  if (process.env.EXPIRE_MS) EXPIRE_MS = validatePositive('EXPIRE_MS', parseInt(process.env.EXPIRE_MS), EXPIRE_MS);
+  if (process.env.RETRY_DELAY_MS) RETRY_DELAY_MS = validatePositive('RETRY_DELAY_MS', parseInt(process.env.RETRY_DELAY_MS), RETRY_DELAY_MS);
   if (process.env.KEEPALIVE_EXCLUDE) KEEPALIVE_EXCLUDE = process.env.KEEPALIVE_EXCLUDE;
   if (process.env.ALERT_WEBHOOK_URL) ALERT_WEBHOOK_URL = process.env.ALERT_WEBHOOK_URL;
   if (process.env.ALERT_CHAT_ID) ALERT_CHAT_ID = process.env.ALERT_CHAT_ID;
-  if (process.env.COST_CACHE_WRITE_PER_MTOK) COST_CACHE_WRITE_PER_MTOK = parseFloat(process.env.COST_CACHE_WRITE_PER_MTOK);
-  if (process.env.COST_CACHE_READ_PER_MTOK) COST_CACHE_READ_PER_MTOK = parseFloat(process.env.COST_CACHE_READ_PER_MTOK);
+  if (process.env.COST_CACHE_WRITE_PER_MTOK) { const n = parseFloat(process.env.COST_CACHE_WRITE_PER_MTOK); if (n >= 0) COST_CACHE_WRITE_PER_MTOK = n; }
+  if (process.env.COST_CACHE_READ_PER_MTOK) { const n = parseFloat(process.env.COST_CACHE_READ_PER_MTOK); if (n >= 0) COST_CACHE_READ_PER_MTOK = n; }
 }
 
 // Validate numeric config value
