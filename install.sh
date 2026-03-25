@@ -86,7 +86,7 @@ echo ""
 mkdir -p "${INSTALL_DIR}"
 cp "${SCRIPT_DIR}/proxy.js" "${INSTALL_DIR}/proxy.js"
 chmod +x "${INSTALL_DIR}/proxy.js"
-echo -e "  ${GREEN}✓${NC} proxy.js → ${INSTALL_DIR}/"
+echo -e "  ${GREEN}✓${NC} proxy.js → ${INSTALL_DIR}/（已有文件会被更新）"
 
 # ─── 3. 配置 ──────────────────────────────────────────
 
@@ -204,7 +204,7 @@ EOF
 
   systemctl --user daemon-reload
   systemctl --user enable "${SERVICE_NAME}" 2>/dev/null
-  echo -e "  ${GREEN}✓${NC} systemd 用户服务已创建并启用（随登录自动启动）"
+  echo -e "  ${GREEN}✓${NC} systemd 用户服务已注册（随用户登录自动启动）"
 
   # 提示 linger
   if ! loginctl show-user "$(whoami)" 2>/dev/null | grep -q "Linger=yes"; then

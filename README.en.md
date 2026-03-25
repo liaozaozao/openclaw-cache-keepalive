@@ -75,7 +75,7 @@ OpenClaw → localhost:8899 (this proxy) → Your Anthropic API upstream
 - **Alerting** — Webhook or Feishu/Lark notifications on cache miss or keepalive failure
 - **Status endpoint** — `GET /status` with session states and cost savings
 - **systemd integration** — One-command install, auto-start on login, auto-restart on crash
-- **Cost tracking** — Configure rates to see actual savings in `/status`
+- **Cost tracking** — Configure rates to see estimated savings in `/status`
 - **Request timeout** — All outbound connections have timeout protection
 
 ## Quick Start
