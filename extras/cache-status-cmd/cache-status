@@ -1,0 +1,212 @@
+#!/usr/bin/env python3
+"""缓存预热代理状态查询 — 供 /cache 斜杠命令直接调用"""
+import json, sys, os, urllib.request, urllib.error, hashlib, time
+from datetime import datetime, timezone, timedelta
+
+TZ = timezone(timedelta(hours=8))
+CACHE_DIR = os.path.expanduser("~/.openclaw/cache-keepalive-proxy/.name-cache")
+TOKEN_FILE = os.path.join(CACHE_DIR, "token.json")
+NAME_CACHE_TTL = 3600
+
+# 模型上下文窗口（tokens）
+MODEL_CTX = {
+    "claude-opus-4-6": 1_000_000,
+    "claude-sonnet-4-6": 1_000_000,
+    "claude-haiku-4-5-20251001": 200_000,
+}
+DEFAULT_CTX = 200_000
+BYTES_PER_TOKEN = 3.5  # 中英混合粗估
+
+# ── 飞书 API ──
+
+def get_feishu_creds():
+    try:
+        import re
+        with open(os.path.expanduser("~/.openclaw/openclaw.json")) as f:
+            content = f.read()
+        app_id = re.search(r'"appId":\s*"([^"]+)"', content)
+        app_secret = re.search(r'"appSecret":\s*"([^"]+)"', content)
+        if app_id and app_secret:
+            return app_id.group(1), app_secret.group(1)
+    except: pass
+    return None, None
+
+def get_tenant_token(app_id, app_secret):
+    os.makedirs(CACHE_DIR, exist_ok=True)
+    try:
+        with open(TOKEN_FILE) as f:
+            cached = json.load(f)
+        if cached.get("expire_at", 0) > time.time() + 60:
+            return cached["token"]
+    except: pass
+    try:
+        body = json.dumps({"app_id": app_id, "app_secret": app_secret}).encode()
+        req = urllib.request.Request(
+            "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+            data=body, headers={"Content-Type": "application/json"}, method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=3) as r:
+            resp = json.loads(r.read())
+        token = resp.get("tenant_access_token")
+        expire = resp.get("expire", 7200)
+        if token:
+            with open(TOKEN_FILE, "w") as f:
+                json.dump({"token": token, "expire_at": time.time() + expire - 120}, f)
+            return token
+    except: pass
+    return None
+
+def resolve_name(sid, token):
+    cache_file = os.path.join(CACHE_DIR, hashlib.md5(sid.encode()).hexdigest() + ".json")
+    try:
+        with open(cache_file) as f:
+            cached = json.load(f)
+        if cached.get("expire_at", 0) > time.time():
+            return cached.get("name")
+    except: pass
+    name = None
+    try:
+        if sid.startswith("chat:"):
+            chat_id = sid[5:]
+            req = urllib.request.Request(
+                f"https://open.feishu.cn/open-apis/im/v1/chats/{chat_id}",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as r:
+                resp = json.loads(r.read())
+            name = resp.get("data", {}).get("name")
+        elif sid.startswith("user:"):
+            user_id = sid[5:]
+            req = urllib.request.Request(
+                f"https://open.feishu.cn/open-apis/contact/v3/users/{user_id}?user_id_type=open_id",
+                headers={"Authorization": f"Bearer {token}"}
+            )
+            with urllib.request.urlopen(req, timeout=3) as r:
+                resp = json.loads(r.read())
+            name = resp.get("data", {}).get("user", {}).get("name")
+    except: pass
+    if name:
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        with open(cache_file, "w") as f:
+            json.dump({"name": name, "expire_at": time.time() + NAME_CACHE_TTL}, f)
+    return name
+
+# ── 工具 ──
+
+def to_local(iso_str):
+    if not iso_str: return "—"
+    try:
+        dt = datetime.fromisoformat(iso_str.replace('Z', '+00:00'))
+        return dt.astimezone(TZ).strftime('%H:%M:%S')
+    except: return iso_str
+
+def fmt_tokens(n):
+    if n >= 1_000_000: return f"{n/1_000_000:.1f}M"
+    if n >= 1_000: return f"{n/1_000:.0f}K"
+    return str(n)
+
+def estimate_context(s):
+    """估算上下文 tokens 和占比"""
+    model = s.get('model', '')
+    max_ctx = MODEL_CTX.get(model, DEFAULT_CTX)
+    real_tokens = s.get('totalCacheRead', 0)
+    ka_count = s.get('keepaliveCount', 0)
+    if ka_count > 0 and real_tokens > 0:
+        tokens = real_tokens // ka_count
+        ka_time = s.get('lastKeepalive')
+        source = f"实测@{to_local(ka_time)}"
+    else:
+        tokens = int(s.get('bodyLen', 0) / BYTES_PER_TOKEN)
+        source = "估算"
+    pct = min(tokens / max_ctx * 100, 100) if max_ctx > 0 else 0
+    return tokens, max_ctx, pct, source
+
+# ── 主逻辑 ──
+
+try:
+    with urllib.request.urlopen('http://127.0.0.1:8899/status', timeout=3) as r:
+        d = json.loads(r.read())
+except Exception as e:
+    print(f"❌ 代理不可用: {e}")
+    sys.exit(1)
+
+app_id, app_secret = get_feishu_creds()
+token = get_tenant_token(app_id, app_secret) if app_id else None
+
+lines = []
+lines.append("🔄 **缓存预热代理状态**")
+lines.append(f"运行 {d['uptime']} | 预热间隔 {d['config']['keepaliveInterval']} | 无活动过期 {d['config']['sessionExpiry']}")
+lines.append("")
+
+ss = d['sessions']
+lines.append(f"📡 **会话 {ss['total']} 个**（预热 {ss['activeKeepalive']} / 排除 {ss['excluded']}）")
+lines.append("")
+
+for i, s in enumerate(ss['list'], 1):
+    sid = s['id']
+    excluded = s['excluded']
+    
+    # 名称
+    if sid.startswith('h:'):
+        name = "Heartbeat/Cron"
+    else:
+        name = resolve_name(sid, token) if token else None
+        if not name:
+            name = "群聊" if sid.startswith('chat:') else "私聊" if sid.startswith('user:') else "未知"
+    
+    tag = "❌排除" if excluded else "✅预热中"
+    lines.append(f"**[{i}] {name}** ({tag})")
+    
+    # 上下文估算
+    tokens, max_ctx, pct, src = estimate_context(s)
+    lines.append(f"    模型: {s['model']} | 请求体: {s['bodyLenHuman']} | 上下文: ~{fmt_tokens(tokens)}/{fmt_tokens(max_ctx)} ({pct:.0f}%, {src})")
+    
+    # 核心时间信息
+    last_time = to_local(s.get('lastActivity'))
+    
+    if excluded:
+        if s['cacheExpired']:
+            lines.append(f"    缓存: ⚠️ 已过期（无预热）")
+        else:
+            lines.append(f"    缓存: 原始TTL {s['cacheExpiresIn']}后过期（无预热）")
+    else:
+        sess_expire_time = to_local(s.get('sessionExpiresAt'))
+        lines.append(f"    保活有效期: 到 {sess_expire_time}（还剩 {s['sessionExpiresIn']}）")
+        next_ka = s.get('nextKeepaliveIn')
+        if next_ka:
+            lines.append(f"    下次预热: {to_local(s.get('nextKeepaliveAt'))}（{next_ka}后）")
+    
+    lines.append(f"    最后消息: {last_time}（{s['idleTime']}前）")
+    
+    # 预热统计（始终显示）
+    ka_count = s.get('keepaliveCount', 0)
+    if ka_count > 0:
+        result = s.get('lastKeepaliveResult', {})
+        # 判断成功/失败
+        total_write = s.get('totalCacheWrite', 0)
+        if total_write == 0:
+            status_str = f"✅ 全部命中"
+        else:
+            fail_pct = total_write / (s.get('totalCacheRead', 0) + total_write) * 100
+            status_str = f"⚠️ {fail_pct:.0f}% 未命中"
+        last_ka_time = to_local(s.get('lastKeepalive'))
+        lines.append(f"    📊 预热: {ka_count}次 | {status_str} | cache_read: {s['totalCacheReadHuman']} | 最近: {last_ka_time}")
+    else:
+        if excluded:
+            lines.append(f"    📊 预热: 已排除")
+        else:
+            lines.append(f"    📊 预热: 0次（会话活跃中，定时器未触发）")
+    lines.append("")
+
+t = d['totals']
+if t['keepaliveCycles'] > 0:
+    total_write = t.get('totalCacheWrite', 0)
+    if total_write == 0:
+        hit_str = "✅ 全部命中"
+    else:
+        hit_str = f"⚠️ 命中率 {t['cacheReadRatio']}"
+    lines.append(f"📊 **总计** 预热 {t['keepaliveCycles']}次 | {hit_str} | 读缓存 {t['totalCacheReadHuman']} tokens")
+else:
+    lines.append("📊 **总计** 暂无预热触发")
+
+print('\n'.join(lines))

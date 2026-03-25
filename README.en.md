@@ -149,6 +149,12 @@ curl http://127.0.0.1:8899/status | python3 -m json.tool
 
 > `/status` is localhost-only, intended for local troubleshooting.
 
+### /cache Slash Command (Optional)
+
+If you install the optional `/cache` command during setup, you can type `/cache` in Feishu, Telegram, Discord, etc. to check proxy status — zero model cost.
+
+Manual install: copy `extras/cache-status-cmd/` to `~/.openclaw/extensions/`, restart OpenClaw.
+
 ## Known Limitations
 
 - **Non-OpenClaw clients**: Session identification falls back to hash-based bucketing. Keepalive granularity may be coarse.

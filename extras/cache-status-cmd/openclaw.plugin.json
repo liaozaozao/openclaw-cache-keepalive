@@ -1,0 +1,13 @@
+{
+  "id": "cache-status-cmd",
+  "name": "Cache Status Command",
+  "description": "注册 /cache 斜杠命令，零模型成本查看缓存预热代理状态",
+  "kind": "utility",
+  "version": "1.0.0",
+  "extensions": ["./index.js"],
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}

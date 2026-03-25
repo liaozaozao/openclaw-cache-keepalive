@@ -275,6 +275,31 @@ EOF
   fi
 fi
 
+# ─── 5. 可选：安装 /cache 斜杠命令 ─────────────────────
+
+EXTRAS_DIR="${SCRIPT_DIR}/extras/cache-status-cmd"
+PLUGIN_DIR="${HOME}/.openclaw/extensions/cache-status-cmd"
+
+if [ -d "${EXTRAS_DIR}" ] && [ -t 0 ]; then
+  echo ""
+  echo -e "${BOLD}[可选] 安装 /cache 斜杠命令${NC}"
+  echo ""
+  echo "  在飞书/Telegram/Discord 中输入 /cache 即可查看代理状态，零模型成本。"
+  echo ""
+  read -rp "  是否安装？[y/N]: " INSTALL_CMD
+  if [[ "$INSTALL_CMD" =~ ^[Yy]$ ]]; then
+    mkdir -p "${PLUGIN_DIR}"
+    cp "${EXTRAS_DIR}/index.js" "${PLUGIN_DIR}/"
+    cp "${EXTRAS_DIR}/openclaw.plugin.json" "${PLUGIN_DIR}/"
+    cp "${EXTRAS_DIR}/cache-status" "${PLUGIN_DIR}/"
+    chmod +x "${PLUGIN_DIR}/cache-status"
+    echo -e "  ${GREEN}✓${NC} /cache 命令已安装到 ${PLUGIN_DIR}"
+    echo -e "  ${YELLOW}提示${NC}: 需要重启 OpenClaw 才能生效"
+  else
+    echo -e "  跳过。后续可手动安装：复制 extras/cache-status-cmd/ 到 ~/.openclaw/extensions/"
+  fi
+fi
+
 # ─── 完成 ─────────────────────────────────────────────
 
 echo ""

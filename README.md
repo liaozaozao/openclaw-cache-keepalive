@@ -180,6 +180,12 @@ systemctl --user restart cache-keepalive-proxy
 
 > `/status` 仅监听本机（127.0.0.1），仅供本地排障使用。
 
+### /cache 斜杠命令（可选）
+
+安装时选择安装 `/cache` 命令后，可以在飞书、Telegram、Discord 等聊天中直接输入 `/cache` 查看代理状态，零模型成本。
+
+手动安装：将 `extras/cache-status-cmd/` 复制到 `~/.openclaw/extensions/`，重启 OpenClaw。
+
 ## 缓存保活时长
 
 最后一条消息发出后，缓存保持有效的时间线：
