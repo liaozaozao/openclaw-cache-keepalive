@@ -1,84 +1,68 @@
 # OpenClaw Cache Keepalive Proxy
 
+> Current version: v1.7.0
+
 > [中文文档](./README.md)
 
-**Automatically keep Anthropic Prompt Cache alive between conversations — no more expensive cache rebuilds.**
+**Keep Anthropic Prompt Cache alive automatically for OpenClaw and Claude Code main sessions.**
 
 ---
 
-## The Problem
+## Project Scope
 
-Anthropic's Prompt Cache has a **5-minute TTL**. Miss that window and the next request rebuilds the entire cache from scratch.
+This proxy sits between your client and an Anthropic-compatible upstream. It:
 
-Most human conversations have gaps longer than 5 minutes. You grab coffee, read something, think before replying — cache gone.
+- forwards requests normally
+- stores only safe-to-keepalive main-session templates after upstream success
+- sends a tiny keepalive request every 4.5 minutes to refresh Prompt Cache TTL
 
-**This proxy keeps your cache alive while you're away.**
+Currently supported:
 
-## How Much Does It Save?
+| Client | Session key | Keepalive behavior |
+|--------|-------------|--------------------|
+| OpenClaw | `system.chat_id` | kept alive |
+| Claude Code main sessions (Opus / Sonnet) | `metadata.user_id.session_id` | kept alive |
+| Claude Code title requests | same outer `session_id` | **excluded** |
+| Claude Code subagent requests | same outer `session_id` | **excluded** |
+| Claude Code Haiku main sessions | `metadata.user_id.session_id` | **excluded** |
 
-**In short**: Cache rebuilds cost **12.5x** more than cache reads. The proxy replaces expensive "rebuilds" with cheap "reads".
+> Principle: only high-confidence main-session templates are allowed to enter keepalive. Title, subagent, and one-shot helper requests never overwrite the template.
 
-### Example
+## Why This Exists
 
-Using Opus with ~200K token context:
+Anthropic Prompt Cache has a **5-minute TTL**. If no new request arrives in time, the next request rebuilds the cache from scratch (`cache_creation`), which is much more expensive than a cache read (`cache_read`).
 
-| Scenario | Cost |
-|----------|------|
-| **No proxy**: 6-minute break, cache expires and rebuilds | **$3.75** |
-| **With proxy**: Same break, one keepalive fired, cache intact | **$0.30** |
-| **Saved in one coffee break** | **$3.45** |
-
-### Savings by Context Size
-
-Per avoided cache rebuild (Opus rates):
-
-| Context | Rebuild Cost | Keepalive Cost | 💰 Saved |
-|---------|-------------|----------------|----------|
-| 50K | $0.94 | ~$0.08 | **$0.86** |
-| 100K | $1.88 | ~$0.15 | **$1.73** |
-| 200K | $3.75 | ~$0.30 | **$3.45** |
-| 300K | $5.63 | ~$0.45 | **$5.18** |
-
-### Daily Estimate
-
-Assuming 5 conversation gaps per day:
-
-| Context | Daily Savings | Monthly Savings |
-|---------|--------------|-----------------|
-| 100K | ~$8 | **~$240** |
-| 200K | ~$16 | **~$480** |
-| 300K | ~$24 | **~$720** |
-
-### Why It Almost Never Loses Money
-
-The proxy stops after 20 minutes of inactivity — at most 4 keepalives. One cache rebuild costs 12.5 keepalives. **Avoiding just one rebuild covers up to 12.5 keepalives worth of cost.**
-
-> Configure cost rates and `/status` will track estimated savings (upper-bound).
+This proxy keeps the cache warm while you are idle.
 
 ## How It Works
 
-```
-OpenClaw → localhost:8899 (this proxy) → Your Anthropic API upstream
-                │
-                ├── Forwards all requests normally
-                ├── Caches request body per session (after upstream 2xx + stream complete)
-                └── Every 4.5 min → sends max_tokens=1 keepalive
-                    → Refreshes cache TTL, preserves existing cache
+```text
+OpenClaw / Claude Code → localhost:8899 (this proxy) → Anthropic-compatible upstream
+                              │
+                              ├── Forwards requests normally
+                              ├── Stores only high-confidence main-session templates
+                              └── Every 4.5 min sends max_tokens=1 keepalive
+                                  → refreshes cache TTL
 ```
 
 ## Features
 
-- **Per-session management** — Multiple chat windows tracked independently
-- **Zero dependencies** — Pure Node.js, no `npm install` needed
-- **Hot-reloadable config** — Most settings apply on next scheduling cycle
-- **Auto-retry** — Retries once after 10 seconds on network errors
-- **Alerting** — Webhook or Feishu/Lark notifications on cache miss or keepalive failure
-- **Status endpoint** — `GET /status` with session states and cost savings
-- **systemd integration** — One-command install, auto-start on login, auto-restart on crash
-- **Cost tracking** — Configure rates to see estimated savings in `/status`
-- **Request timeout** — All outbound connections have timeout protection
+- **Per-session isolation** — independent keepalive state per main session
+- **Claude Code smart detection** — automatically classifies main sessions, subagents, title requests, and Haiku sessions
+- **Claude Code subagent-safe** — subagent requests refresh activity but do not overwrite the main template
+- **Haiku excluded** — Claude Code Haiku main sessions are never kept alive
+- **Zero dependencies** — pure Node.js, no `npm install`
+- **Hot-reloadable config** — most config changes apply on the next scheduling cycle
+- **Auto-retry** — retries once after 10 seconds on network failure
+- **Status endpoint** — `GET /status` with session state, keepalive results, and exclusion reasons
+- **Browser dashboard** — `/status/ui` with session grouping, manual stop, filters, and auto-refresh
+- **Config validation warnings** — warns when keepalive interval >= TTL or >= session expiry
+- **Linux systemd integration**
+- **Windows direct-run support**
 
 ## Quick Start
+
+### Linux / Debian
 
 ```bash
 git clone https://github.com/liaozaozao/openclaw-cache-keepalive.git
@@ -87,101 +71,252 @@ chmod +x install.sh
 ./install.sh
 ```
 
-Then point your OpenClaw Anthropic base URL to the proxy:
+`install.sh` will:
+
+1. copy files into `~/.openclaw/cache-keepalive-proxy/`
+2. create the config file
+3. register and start a `systemd --user` service
+
+### Windows
+
+Windows does not use `install.sh`. Run directly:
+
+```powershell
+Set-Location <repo-dir>
+.\scripts\windows\run.ps1
+```
+
+For long-running use on Windows, prefer either:
+
+- a dedicated PowerShell / Windows Terminal window
+- or Task Scheduler / NSSM to supervise the Node process
+
+You can also run:
+
+```cmd
+scripts\windows\run.cmd
+```
+
+Notes:
+
+- On first run, if `config.conf` does not exist, the launcher copies `config.example.conf`
+- Then you only need to edit `UPSTREAM_URL`
+- The launcher automatically points `CONF_FILE` at the repo-local `config.conf`
+- Windows launchers now live under `scripts/windows/`
+
+## Project Layout
+
+- `proxy.js`: main proxy entry
+- `ui/`: status page template, styling, and client logic
+- `scripts/windows/`: Windows launchers
+- `extras/cache-status-cmd/`: optional `/cache` slash command
+
+## Point Clients to the Proxy
+
+### OpenClaw
+
+Point OpenClaw's Anthropic base URL to the proxy:
 
 ```bash
 ANTHROPIC_BASE_URL=http://127.0.0.1:8899
 openclaw gateway restart
 ```
 
+Start from [config.openclaw.example.conf](./config.openclaw.example.conf).
+This is a shorter OpenClaw-oriented starter; [config.example.conf](./config.example.conf) remains the canonical full template.
+
+### Claude Code
+
+Point Claude Code's `ANTHROPIC_BASE_URL` at the proxy.
+
+Option 1: configure it in Claude Code settings
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"
+  }
+}
+```
+
+Option 2: launch with a dedicated settings file
+
+```powershell
+claude --settings "$env:USERPROFILE\.claude\settings.proxy.json"
+```
+
+Start from [config.claude-code.example.conf](./config.claude-code.example.conf).
+This is a shorter Claude Code-oriented starter; [config.example.conf](./config.example.conf) remains the canonical full template.
+
 ## Requirements
 
-- **Node.js 18+** (no external dependencies)
-- **Linux with systemd** (installer creates a user-level service)
-- **OpenClaw** with Anthropic API configured
-
-> No systemd? Just run `node proxy.js` directly.
+- **Node.js 18+**
+- Recommended for Linux long-running use:
+  - **Debian / Ubuntu / other Linux**
+  - **systemd**
+- Recommended for Windows long-running use:
+  - long-lived terminal session, or Task Scheduler / NSSM
 
 ## Configuration
 
-Config file: `~/.openclaw/cache-keepalive-proxy/config.conf`
+The generic template is [config.example.conf](./config.example.conf).
+
+Common config locations:
+
+- Linux installed mode: `~/.openclaw/cache-keepalive-proxy/config.conf`
+- Manual mode: anywhere, via `CONF_FILE`
 
 | Config | Default | Hot-reload | Description |
 |--------|---------|------------|-------------|
-| `UPSTREAM_URL` | *(required)* | ❌ Restart | Anthropic API endpoint (supports path-prefixed relays) |
-| `PORT` | `8899` | ❌ Restart | Local proxy port |
-| `KEEPALIVE_MS` | `270000` (4m30s) | ✅ | Keepalive interval |
-| `EXPIRE_MS` | `1200000` (20m) | ✅ | Session inactivity timeout |
-| `RETRY_DELAY_MS` | `10000` (10s) | ✅ | Retry delay on failure |
-| `KEEPALIVE_EXCLUDE` | `h:` | ✅ | Exclude session ID prefixes |
-| `ALERT_WEBHOOK_URL` | *(empty)* | ✅ | Generic webhook URL |
-| `ALERT_CHAT_ID` | *(empty)* | ✅ | Feishu/Lark chat_id |
-| `COST_CACHE_WRITE_PER_MTOK` | `0` | ✅ | cache_write price ($/MTok) |
-| `COST_CACHE_READ_PER_MTOK` | `0` | ✅ | cache_read price ($/MTok) |
+| `UPSTREAM_URL` | *(required)* | ❌ | Anthropic-compatible upstream URL |
+| `PORT` | `8899` | ❌ | Local listen port |
+| `KEEPALIVE_SECONDS` | `270` | ✅ | Keepalive interval |
+| `EXPIRE_SECONDS` | `1200` | ✅ | Session inactivity expiry |
+| `RETRY_DELAY_SECONDS` | `10` | ✅ | Retry delay on keepalive failure |
+| `KEEPALIVE_EXCLUDE` | `h:` | ✅ | Exclude by session ID prefix |
+| `ALERT_WEBHOOK_URL` | empty | ✅ | Generic webhook URL |
+| `ALERT_CHAT_ID` | empty | ✅ | Feishu/Lark chat_id |
+| `INSPECT_REQUESTS` | `0` | ✅ | Safe summary debugging |
+| `FULL_CAPTURE_REQUESTS` | `0` | ✅ | Full request capture debugging, not for normal use |
+| `INSPECT_MAX_ENTRIES` | `30` | ✅ | Inspect in-memory ring buffer max entries |
+| `FULL_CAPTURE_MAX_ENTRIES` | `10` | ✅ | Capture in-memory ring buffer max entries |
+| `COST_CACHE_WRITE_PER_MTOK` | `0` | ✅ | cache_write unit price |
+| `COST_CACHE_READ_PER_MTOK` | `0` | ✅ | cache_read unit price |
 
-> **Hot-reload**: ✅ fields take effect on next scheduling cycle. ❌ fields require restart. Environment variables take priority over config file.
+> New configs should use seconds. Legacy `KEEPALIVE_MS / EXPIRE_MS / RETRY_DELAY_MS` remain supported only for backward compatibility.
+>
+> Debug flags are for short-lived troubleshooting only. Keep them off in production.
 
-### Cost Tracking
-
-Set your rates to see savings in `/status`:
-
-```
-# Opus rates
-COST_CACHE_WRITE_PER_MTOK=18.75
-COST_CACHE_READ_PER_MTOK=1.50
-```
-
-> Only cache_write and cache_read prices matter. The proxy turns "rebuilds" into "reads" — it doesn't generate extra input/output tokens.
-
-### Alerting
-
-**Webhook** (Slack, Discord, etc.): `ALERT_WEBHOOK_URL=https://...`
-
-**Feishu/Lark**: `ALERT_CHAT_ID=oc_xxx` (credentials auto-detected from OpenClaw config)
-
-**Neither?** Alerts go to `.alerts.jsonl` and stdout.
-
-## Monitoring
+## `/status`
 
 ```bash
 curl http://127.0.0.1:8899/status | python3 -m json.tool
 ```
 
-> `/status` is localhost-only, intended for local troubleshooting.
+Browser dashboard:
 
-### /cache Slash Command (Optional)
+```text
+http://127.0.0.1:8899/status/ui
+```
 
-If you install the optional `/cache` command during setup, you can type `/cache` in Feishu, Telegram, Discord, etc. to check proxy status — zero model cost.
+Notes:
 
-Manual install: copy `extras/cache-status-cmd/` to `~/.openclaw/extensions/`, restart OpenClaw.
+- `/status` stays machine-readable JSON for scripts and troubleshooting
+- `/status/ui` renders the same data as a local dashboard without adding a build step or extra dependencies
+- `/status/ui` defaults to Chinese, supports switching to English in-page, and remembers the last language choice
 
-> **Note**: `/cache` shows global proxy status (all active sessions), not just the current chat. Suitable for personal use. On shared OpenClaw instances, other users may see session activity info.
+Key fields related to Claude Code:
+
+- `requestKind`
+  - `claude_code_main`
+  - `claude_code_title`
+  - `claude_code_subagent`
+  - `claude_code_unknown`
+  - `claude_code_haiku_main`
+  - `generic_fallback`
+  - `openclaw_chat`
+- `sessionSource`
+  - `metadata.user_id.session_id`
+  - `system.chat_id`
+- `keepaliveEnabled`
+  - `true`: eligible for keepalive
+  - `false`: explicitly excluded
+- `excludedReason`
+  - `haiku_model`
+  - `prefix_excluded`
+  - `unknown_request_shape`
+
+Notes:
+
+- Claude Code title and subagent requests do not appear as active keepalive sessions
+- Claude Code Haiku sessions are explicitly excluded from keepalive
+
+## Cost Tracking
+
+If you set prices, `/status` will estimate savings:
+
+```ini
+COST_CACHE_WRITE_PER_MTOK=18.75
+COST_CACHE_READ_PER_MTOK=1.50
+```
+
+## Alerts
+
+### Generic webhook
+
+```ini
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/xxx
+```
+
+### Feishu / Lark
+
+```ini
+ALERT_CHAT_ID=oc_xxxxxxxxxxxx
+```
+
+Credentials are auto-detected from OpenClaw config.
+
+## Debugging / Troubleshooting
+
+Safe summary debugging:
+
+- `GET /inspect`
+- written to `.inspect.jsonl`
+
+Full request capture debugging:
+
+- `GET /capture`
+- written to `.capture.jsonl`
+- auth headers are redacted, but request bodies are still stored
+
+Before long-running use, delete:
+
+- `.inspect.jsonl`
+- `.capture.jsonl`
+
+## Privacy / Local Paths
+
+Repository docs and example configs should not contain your personal absolute paths, usernames, or debug artifacts.
+
+For normal use:
+
+- prefer repo-relative paths or `$env:USERPROFILE`
+- do not commit local debug configs, capture files, or personal settings files
+
+## Verified Behavior
+
+Validated with real traffic:
+
+- OpenClaw keepalive flow remains intact
+- Claude Code main Opus / Sonnet sessions can be kept alive successfully
+- Claude Code subagent requests do not overwrite the main template
+- Claude Code Haiku sessions are not kept alive
 
 ## Known Limitations
 
-- **Non-OpenClaw clients**: Session identification falls back to hash-based bucketing. Keepalive granularity may be coarse.
-- **Third-party relays**: The proxy forwards most request headers. Verify compatibility if your relay uses custom authentication headers.
+- If Claude Code changes request structure significantly in a future release, the main-template admission rule may need adjustment
+- The proxy listens on `127.0.0.1` by default
+- There is no built-in Windows service installer yet; supervise the Node process yourself
 
 ## Bypass / Uninstall
 
-**Bypass**: `systemctl --user stop cache-keepalive-proxy`, revert your API URL.
+### Linux
 
-**Uninstall** (recommended):
-```bash
-./install.sh --uninstall
-# Then revert your OpenClaw API URL to the original upstream and restart gateway
-```
+Bypass:
 
-Manual uninstall:
 ```bash
 systemctl --user stop cache-keepalive-proxy
-systemctl --user disable cache-keepalive-proxy
-rm -rf ~/.openclaw/cache-keepalive-proxy
-rm -rf ~/.openclaw/extensions/cache-status-cmd
-rm ~/.config/systemd/user/cache-keepalive-proxy.service
-systemctl --user daemon-reload
-# Revert OpenClaw API URL and restart gateway
 ```
+
+Uninstall:
+
+```bash
+./install.sh --uninstall
+```
+
+### Windows
+
+Stop the `node proxy.js` process (terminal window, Task Scheduler job, or NSSM service).
 
 ## License
 

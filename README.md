@@ -1,84 +1,72 @@
 # OpenClaw Cache Keepalive Proxy
 
+> 当前版本：v1.7.0
+
 > [English](./README.en.md)
 
-**自动保活 Anthropic Prompt Cache，让对话间隔超过 5 分钟也不丢缓存。**
+**自动保活 Anthropic Prompt Cache，支持 OpenClaw 与 Claude Code 主会话。**
 
 ---
 
-## 为什么需要这个？
+## 项目定位
 
-Anthropic 的 Prompt Cache 有 **5 分钟 TTL**——如果 5 分钟内没有新请求，缓存就过期了。下一条消息会触发完整的缓存重建（`cache_creation`），按上下文大小收费。
+这个代理运行在客户端与 Anthropic 兼容上游之间，作用是：
 
-但人类聊天不是机器——回消息的间隔经常超过 5 分钟。你只是去倒了杯水、看了个消息、想了一会儿，回来缓存就没了。
+- 正常转发请求
+- 在上游成功响应且流完整后，保存“可安全保活”的主会话请求模板
+- 每 4 分 30 秒发送一次极小 keepalive 请求，刷新 Prompt Cache TTL
 
-**这个代理在你不说话的时候，帮你保住缓存。**
+当前支持：
 
-## 能省多少钱？
+| 客户端 | 会话识别 | 保活策略 |
+|--------|----------|----------|
+| OpenClaw | `system.chat_id` | 正常保活 |
+| Claude Code 主会话（Opus / Sonnet） | `metadata.user_id.session_id` | 正常保活 |
+| Claude Code 标题请求 | 同主会话 `session_id` | **不保活** |
+| Claude Code 子代理请求 | 同主会话 `session_id` | **不保活** |
+| Claude Code Haiku 主会话 | `metadata.user_id.session_id` | **不保活** |
 
-**一句话**：缓存重建比缓存读取贵 **12.5 倍**。代理的作用就是用便宜的"读"来避免昂贵的"重建"。
+> 关键原则：只让高置信主会话模板进入保活；子代理、标题请求、一次性轻请求不会覆盖模板。
 
-### 一个例子
+## 为什么需要它
 
-你在用 Opus，对话上下文约 200K tokens：
+Anthropic Prompt Cache 默认 TTL 只有 **5 分钟**。  
+如果 5 分钟内没有新请求，下一条消息就会触发完整缓存重建（`cache_creation`），成本远高于缓存读取（`cache_read`）。
 
-| 场景 | 费用 |
-|------|------|
-| **没有代理**：喝了杯水，6 分钟后回来，缓存过期重建 | **$3.75** |
-| **有代理**：同样 6 分钟，代理保活了一次，你回来缓存还在 | **$0.30** |
-| **一杯水省下** | **$3.45** |
+这个代理的目标就是：
 
-### 不同上下文大小的单次节省
-
-以 Opus 官方价为例，每避免一次缓存重建：
-
-| 上下文 | 重建费用 | 保活费用 | 💰 省下 |
-|--------|---------|---------|--------|
-| 50K | $0.94 | ~$0.08 | **$0.86** |
-| 100K | $1.88 | ~$0.15 | **$1.73** |
-| 200K | $3.75 | ~$0.30 | **$3.45** |
-| 300K | $5.63 | ~$0.45 | **$5.18** |
-
-### 日常使用估算
-
-假设每天有 5 次对话间隔超过 5 分钟：
-
-| 上下文 | 每天省 | 每月省 |
-|--------|-------|-------|
-| 100K | ~$8 | **~$240** |
-| 200K | ~$16 | **~$480** |
-| 300K | ~$24 | **~$720** |
-
-### 为什么几乎不亏？
-
-代理 20 分钟没活动就自动停。在这 20 分钟内最多保活 4 次。而一次缓存重建的费用 = 12.5 次保活的费用。**只要避免了一次重建，就足以覆盖最多 12.5 次保活的开销。**
-
-> 配置费率后，`/status` 会自动追踪和显示预估节省金额（上界估计）。
+- 用便宜的“读缓存”请求
+- 避免昂贵的“重建缓存”
 
 ## 工作原理
 
-```
-OpenClaw → localhost:8899（本代理）→ 你的 Anthropic API 上游
-                  │
-                  ├── 正常转发所有请求
-                  ├── 上游成功响应且流完整后，按会话缓存请求体
-                  └── 每 4.5 分钟发送一次 max_tokens=1 的保活请求
-                      → 刷新缓存 TTL，保住已有缓存
+```text
+OpenClaw / Claude Code → localhost:8899（本代理）→ Anthropic 兼容上游
+                              │
+                              ├── 正常转发所有请求
+                              ├── 只缓存高置信主会话模板
+                              └── 每 4.5 分钟发送一次 max_tokens=1 keepalive
+                                  → 刷新缓存 TTL
 ```
 
 ## 核心特性
 
-- **按会话独立管理** — 多个对话窗口各自保活，互不干扰
-- **零依赖** — 纯 Node.js，不需要 npm install
-- **多数配置热加载** — 修改 `config.conf` 多数配置自动生效（已存在的定时器在下一轮调度时更新）
-- **失败自动重试** — 网络异常时 10 秒后重试一次
-- **告警通知** — 缓存未命中或保活失败时通过 Webhook 或飞书提醒
-- **状态接口** — `GET /status` 查看所有会话的缓存状态和费用节省
-- **systemd 集成** — 一键安装，随用户登录自动启动，崩溃自动恢复
-- **费用追踪** — 配置费率后自动计算节省金额
-- **请求超时** — 所有外发连接有超时保护，不会因网络问题永久挂起
+- **按会话独立管理**：多个 OpenClaw / Claude Code 主窗口互不干扰
+- **Claude Code 智能识别**：自动检测并分类主会话、子代理、标题请求和 Haiku 会话
+- **Claude Code 子代理安全排除**：子代理请求只刷新活动时间，不会污染主模板
+- **Haiku 不保活**：Claude Code 的 Haiku 主会话不会进入保活队列
+- **零依赖**：纯 Node.js，不需要 `npm install`
+- **多数配置热加载**：修改 `config.conf` 后，多数配置在下一轮调度生效
+- **失败自动重试**：网络错误时 10 秒后重试一次
+- **状态接口**：`GET /status` 查看会话状态、保活结果和排除原因
+- **浏览器状态面板**：`/status/ui` 提供会话分组、手动停止、筛选过滤和自动刷新
+- **配置校验警告**：keepalive 间隔 >= TTL 或 >= 过期时间时自动告警
+- **Linux 可安装为 systemd 用户服务**
+- **Windows 可直接运行 Node 进程**
 
 ## 快速开始
+
+### Linux / Debian
 
 ```bash
 git clone https://github.com/liaozaozao/openclaw-cache-keepalive.git
@@ -87,174 +75,254 @@ chmod +x install.sh
 ./install.sh
 ```
 
-安装向导会引导你完成：
-1. 填写上游 API 地址（你的 Anthropic API 端点）
-2. 可选配置告警通知
-3. 自动注册 systemd 服务并启动
+`install.sh` 会：
 
-安装完成后，把 OpenClaw 的 Anthropic API 地址改为代理地址，重启即可：
+1. 复制文件到 `~/.openclaw/cache-keepalive-proxy/`
+2. 创建配置文件
+3. 注册并启动 `systemd --user` 服务
+
+### Windows
+
+Windows 不使用 `install.sh`。直接运行：
+
+```powershell
+Set-Location <仓库目录>
+.\scripts\windows\run.ps1
+```
+
+如果需要长期后台运行，建议使用：
+
+- Windows Terminal / PowerShell 长期开一个窗口
+- 或 Windows 任务计划程序 / NSSM 托管 Node 进程
+
+也可以直接运行：
+
+```cmd
+scripts\windows\run.cmd
+```
+
+说明：
+
+- 首次运行如果没有 `config.conf`，脚本会自动从 `config.example.conf` 复制一份
+- 然后你只需要编辑 `UPSTREAM_URL`
+- 脚本会自动把 `CONF_FILE` 指向仓库内的 `config.conf`
+- Windows 启动脚本已整理到 `scripts/windows/`
+
+## 目录结构
+
+- `proxy.js`：代理主入口
+- `ui/`：状态页模板、样式和前端逻辑
+- `scripts/windows/`：Windows 启动脚本
+- `extras/cache-status-cmd/`：可选的 `/cache` 斜杠命令
+
+## 配置客户端
+
+### OpenClaw
+
+把 OpenClaw 的 Anthropic Base URL 指向代理：
 
 ```bash
-# 在 .env 或 OpenClaw 配置中设置：
 ANTHROPIC_BASE_URL=http://127.0.0.1:8899
-
-# 重启 OpenClaw
 openclaw gateway restart
 ```
 
+建议从 [config.openclaw.example.conf](./config.openclaw.example.conf) 开始。
+这份文件是面向 OpenClaw 的精简起步模板；完整字段说明仍以 [config.example.conf](./config.example.conf) 为准。
+
+### Claude Code
+
+把 Claude Code 的 `ANTHROPIC_BASE_URL` 指向代理。
+
+方式一：在 Claude Code settings 中配置
+
+```json
+{
+  "env": {
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:8899"
+  }
+}
+```
+
+方式二：命令行指定 settings 文件
+
+```powershell
+claude --settings "$env:USERPROFILE\.claude\settings.proxy.json"
+```
+
+建议从 [config.claude-code.example.conf](./config.claude-code.example.conf) 开始。
+这份文件是面向 Claude Code 的精简起步模板；完整字段说明仍以 [config.example.conf](./config.example.conf) 为准。
+
 ## 运行要求
 
-- **Node.js 18+**（无需额外依赖）
-- **Linux + systemd**（安装器自动创建用户级服务）
-- 已配置 Anthropic API 的 **OpenClaw** 实例
-
-> 没有 systemd？也能用——直接 `node proxy.js` 运行，自行管理进程即可。
+- **Node.js 18+**
+- Linux 长期部署推荐：
+  - **Debian / Ubuntu / 其他 Linux**
+  - **systemd**
+- Windows 长期部署推荐：
+  - 常驻终端窗口，或任务计划程序 / NSSM
 
 ## 配置说明
 
-配置文件路径：`~/.openclaw/cache-keepalive-proxy/config.conf`
+正式配置模板见 [config.example.conf](./config.example.conf)。
+
+配置文件常见位置：
+
+- Linux 安装版：`~/.openclaw/cache-keepalive-proxy/config.conf`
+- 手动运行版：任意路径，通过 `CONF_FILE` 指定
 
 | 配置项 | 默认值 | 热加载 | 说明 |
 |--------|--------|--------|------|
-| `UPSTREAM_URL` | *（必填）* | ❌ 需重启 | Anthropic API 上游地址（支持带路径的中转地址） |
-| `PORT` | `8899` | ❌ 需重启 | 代理监听端口 |
-| `KEEPALIVE_MS` | `270000`（4 分 30 秒） | ✅ | 保活请求间隔 |
-| `EXPIRE_MS` | `1200000`（20 分钟） | ✅ | 会话过期时间（无活动后） |
-| `RETRY_DELAY_MS` | `10000`（10 秒） | ✅ | 失败重试等待时间 |
-| `KEEPALIVE_EXCLUDE` | `h:` | ✅ | 排除的 session ID 前缀 |
-| `ALERT_WEBHOOK_URL` | *（空）* | ✅ | Webhook 告警地址 |
-| `ALERT_CHAT_ID` | *（空）* | ✅ | 飞书告警群 ID |
-| `COST_CACHE_WRITE_PER_MTOK` | `0` | ✅ | cache_write 价格（$/MTok） |
-| `COST_CACHE_READ_PER_MTOK` | `0` | ✅ | cache_read 价格（$/MTok） |
+| `UPSTREAM_URL` | *必填* | ❌ | Anthropic 兼容上游地址 |
+| `PORT` | `8899` | ❌ | 本地监听端口 |
+| `KEEPALIVE_SECONDS` | `270` | ✅ | 保活间隔，默认 4 分 30 秒 |
+| `EXPIRE_SECONDS` | `1200` | ✅ | 无活动后会话过期时间，默认 20 分钟 |
+| `RETRY_DELAY_SECONDS` | `10` | ✅ | 保活失败后的重试等待时间 |
+| `KEEPALIVE_EXCLUDE` | `h:` | ✅ | 按 session ID 前缀排除 |
+| `ALERT_WEBHOOK_URL` | 空 | ✅ | 通用告警 webhook |
+| `ALERT_CHAT_ID` | 空 | ✅ | 飞书告警 chat_id |
+| `INSPECT_REQUESTS` | `0` | ✅ | 安全摘要调试开关 |
+| `FULL_CAPTURE_REQUESTS` | `0` | ✅ | 完整请求捕获调试开关，不建议常开 |
+| `INSPECT_MAX_ENTRIES` | `30` | ✅ | inspect 内存环形缓冲区最大条目数 |
+| `FULL_CAPTURE_MAX_ENTRIES` | `10` | ✅ | capture 内存环形缓冲区最大条目数 |
+| `COST_CACHE_WRITE_PER_MTOK` | `0` | ✅ | cache_write 单价 |
+| `COST_CACHE_READ_PER_MTOK` | `0` | ✅ | cache_read 单价 |
 
-> **热加载**：标记 ✅ 的配置项修改后在下一轮调度时生效。标记 ❌ 的需要重启服务。环境变量优先级高于配置文件。
+> 新配置建议统一使用秒。旧版 `KEEPALIVE_MS / EXPIRE_MS / RETRY_DELAY_MS` 仍兼容，但仅用于兼容旧部署。
+>
+> 调试开关只用于短期排障。正式运行时应保持关闭。
 
-### 费用追踪
+## `/status` 状态接口
 
-在配置文件中设置你的实际费率，`/status` 会自动显示节省金额：
-
+```bash
+curl http://127.0.0.1:8899/status | python3 -m json.tool
 ```
-# Opus 官方价
+
+浏览器状态页：
+
+```text
+http://127.0.0.1:8899/status/ui
+```
+
+说明：
+
+- `/status` 继续保留为机器可读 JSON，兼容现有脚本与排障命令
+- `/status/ui` 基于 `/status` 数据做本地可视化展示，不引入额外依赖或构建步骤
+- `/status/ui` 默认中文，支持页面内切换英文，并记住上次语言选择
+
+状态输出中和 Claude Code 相关的关键字段：
+
+- `requestKind`
+  - `claude_code_main`
+  - `claude_code_title`
+  - `claude_code_subagent`
+  - `claude_code_unknown`
+  - `claude_code_haiku_main`
+  - `generic_fallback`
+  - `openclaw_chat`
+- `sessionSource`
+  - `metadata.user_id.session_id`
+  - `system.chat_id`
+- `keepaliveEnabled`
+  - `true`：进入保活队列
+  - `false`：已显式排除
+- `excludedReason`
+  - `haiku_model`
+  - `prefix_excluded`
+  - `unknown_request_shape`
+
+说明：
+
+- Claude Code 的标题请求和子代理请求不会出现在活跃保活列表里
+- Claude Code 的 Haiku 主会话会被明确标记为排除，不参与保活
+
+## 费用追踪
+
+如果你填写了价格，`/status` 会给出估算节省金额：
+
+```ini
 COST_CACHE_WRITE_PER_MTOK=18.75
 COST_CACHE_READ_PER_MTOK=1.50
-
-# Sonnet 官方价
-# COST_CACHE_WRITE_PER_MTOK=3.75
-# COST_CACHE_READ_PER_MTOK=0.30
 ```
 
-> 只需要 cache_write 和 cache_read 两个价格。input/output 价格不影响省钱计算——代理只把"重建"变成"读取"，不产生额外的 input/output 消耗。
+> 这里只关心 `cache_write` 和 `cache_read`，不关心 output 成本。
 
-### 告警配置
+## 告警
 
-当缓存意外失效（cache_write > 0）或保活请求失败时，代理会发送告警。
+### 通用 Webhook
 
-**方式一：通用 Webhook**（Slack / Discord / 自定义）：
-```
+```ini
 ALERT_WEBHOOK_URL=https://hooks.slack.com/services/xxx
 ```
 
-**方式二：飞书**（OpenClaw + 飞书用户推荐）：
-```
+### 飞书
+
+```ini
 ALERT_CHAT_ID=oc_xxxxxxxxxxxx
 ```
-飞书凭证自动从 `~/.openclaw/openclaw.json` 读取，无需额外配置。
 
-**都不配？** 告警会写入 `.alerts.jsonl` 并输出到日志。
+飞书凭证会从 OpenClaw 配置中自动读取。
 
-## 监控
+## 调试与排障
 
-```bash
-# 查看代理状态（JSON，含费用节省信息）
-curl http://127.0.0.1:8899/status | python3 -m json.tool
+安全摘要调试：
 
-# 查看服务状态
-systemctl --user status cache-keepalive-proxy
+- `GET /inspect`
+- 输出到 `.inspect.jsonl`
 
-# 实时日志
-journalctl --user -u cache-keepalive-proxy -f
+完整捕获调试：
 
-# 重启（修改 UPSTREAM_URL 或 PORT 后需要）
-systemctl --user restart cache-keepalive-proxy
-```
+- `GET /capture`
+- 输出到 `.capture.jsonl`
+- 鉴权头会脱敏，但正文仍会落盘
 
-> `/status` 仅监听本机（127.0.0.1），仅供本地排障使用。
+正式运行前建议删除：
 
-### /cache 斜杠命令（可选）
+- `.inspect.jsonl`
+- `.capture.jsonl`
 
-安装时选择安装 `/cache` 命令后，可以在飞书、Telegram、Discord 等聊天中直接输入 `/cache` 查看代理状态，零模型成本。
+## 隐私与本地路径
 
-手动安装：将 `extras/cache-status-cmd/` 复制到 `~/.openclaw/extensions/`，重启 OpenClaw。
+仓库中的文档和示例配置不应包含你的本地绝对路径、用户名或调试产物。
 
-> **注意**：`/cache` 显示的是代理的全局状态（所有活跃会话），不限于当前聊天。适合个人使用场景。如果多人共享同一个 OpenClaw 实例，请注意其他用户可能看到会话活动信息。
+正式使用时建议：
 
-## 缓存保活时长
+- 使用仓库相对路径或 `$env:USERPROFILE`
+- 不要把本地调试配置、抓取文件、个人 settings 文件提交进仓库
 
-最后一条消息发出后，缓存保持有效的时间线：
+## 已确认行为
 
-```
-最后一条消息
-  ├── +4m30s → 保活 1（刷新 TTL）
-  ├── +9m00s → 保活 2
-  ├── +13m30s → 保活 3
-  └── +18m00s → 保活 4
-      └── +5m TTL → ≈ 第 23 分钟缓存才真正过期
+根据真实请求验证：
 
-20 分钟无新消息 → 会话过期，停止保活
-```
-
-**实际保护窗口：~22-23 分钟。**
-
-## 注意事项
-
-- **不要删除 `thinking` 字段**：代理保留原始请求中的 `thinking` 结构，这是缓存前缀匹配的必要条件。
-- **重启代理是安全的**：重启只意味着下一次真实请求会重建一次缓存，之后恢复正常。
-- **多会话支持**：每个对话窗口独立维护缓存和保活定时器。
-- **只在成功后保活**：代理只在上游返回 2xx 且响应流完整传输后才缓存会话并启动保活。
+- OpenClaw 原有保活路径不受影响
+- Claude Code 主会话（Opus / Sonnet）可成功保活
+- Claude Code 子代理请求不会覆盖主模板
+- Claude Code Haiku 会话不保活
 
 ## 已知限制
 
-- **非 OpenClaw 场景**：代理默认从 system 字段提取 `chat_id` 来区分会话。其他客户端的请求会使用 hash-based fallback，保活粒度可能不够精确。
-- **第三方 relay**：代理转发除 hop-by-hop 以外的所有请求头。如果你的 relay 使用了特殊的认证机制，请验证兼容性。
-
-## 常见问题
-
-**Q: 保活请求会不会影响正常对话？**
-
-不会。保活请求设置了 `max_tokens=1`，不经过 OpenClaw，不会出现在对话历史中。
-
-**Q: 代理挂了怎么办？**
-
-systemd 会自动重启。重启后第一次请求会重建缓存，之后恢复正常。
-
-**Q: 上游换了地址怎么办？**
-
-编辑 `config.conf` 中的 `UPSTREAM_URL`，然后重启服务。
+- Claude Code 未来版本如果显著更改请求结构，主模板准入规则可能需要微调
+- 代理默认只监听 `127.0.0.1`
+- Windows 目前没有内置服务安装器，推荐手动托管 Node 进程
 
 ## 绕过 / 卸载
 
-**临时绕过**：
+### Linux
+
+临时绕过：
+
 ```bash
 systemctl --user stop cache-keepalive-proxy
-# 把 OpenClaw 的 API 地址改回上游，重启 gateway
 ```
 
-**完全卸载**（推荐用脚本）：
+卸载：
+
 ```bash
 ./install.sh --uninstall
-# 然后把 OpenClaw 的 API 地址改回原来的上游，重启 gateway
 ```
 
-手动卸载：
-```bash
-systemctl --user stop cache-keepalive-proxy
-systemctl --user disable cache-keepalive-proxy
-rm -rf ~/.openclaw/cache-keepalive-proxy
-rm -rf ~/.openclaw/extensions/cache-status-cmd
-rm ~/.config/systemd/user/cache-keepalive-proxy.service
-systemctl --user daemon-reload
-# 把 OpenClaw 的 API 地址改回原来的上游，重启 gateway
-```
+### Windows
+
+直接停止运行 `node proxy.js` 的终端 / 任务即可。
 
 ## 许可证
 
