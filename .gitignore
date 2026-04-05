@@ -1,0 +1,13 @@
+config.conf
+.alerts.jsonl
+.inspect.jsonl
+.capture.jsonl
+.tmp-*
+.name-cache/
+node_modules/
+.ace-tool/
+.omc/
+.serena/
+.env
+.env.*
+*.log
