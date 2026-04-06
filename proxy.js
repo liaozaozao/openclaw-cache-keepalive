@@ -71,6 +71,7 @@ let INSPECT_REQUESTS = false;
 let INSPECT_MAX_ENTRIES = 30;
 let FULL_CAPTURE_REQUESTS = false;
 let FULL_CAPTURE_MAX_ENTRIES = 10;
+let LOG_MAX_BYTES = 2 * 1024 * 1024 * 1024; // 2GB default
 
 // Cost tracking config (hot-reloadable)
 let COST_CACHE_WRITE_PER_MTOK = 0; // e.g. 18.75 for Opus
@@ -106,6 +107,7 @@ function applyEnvOverrides() {
   if (process.env.FULL_CAPTURE_MAX_ENTRIES) FULL_CAPTURE_MAX_ENTRIES = validatePositive('FULL_CAPTURE_MAX_ENTRIES', parseInt(process.env.FULL_CAPTURE_MAX_ENTRIES), FULL_CAPTURE_MAX_ENTRIES);
   if (process.env.COST_CACHE_WRITE_PER_MTOK) { const n = parseFloat(process.env.COST_CACHE_WRITE_PER_MTOK); if (n >= 0) COST_CACHE_WRITE_PER_MTOK = n; }
   if (process.env.COST_CACHE_READ_PER_MTOK) { const n = parseFloat(process.env.COST_CACHE_READ_PER_MTOK); if (n >= 0) COST_CACHE_READ_PER_MTOK = n; }
+  if (process.env.LOG_MAX_MB) { const n = parseInt(process.env.LOG_MAX_MB); if (n >= 10) LOG_MAX_BYTES = n * 1024 * 1024; }
 }
 
 // Validate numeric config value
@@ -145,6 +147,7 @@ function reloadConf() {
       if (k === 'FULL_CAPTURE_MAX_ENTRIES') FULL_CAPTURE_MAX_ENTRIES = validatePositive(k, parseInt(v), FULL_CAPTURE_MAX_ENTRIES);
       if (k === 'COST_CACHE_WRITE_PER_MTOK') { const n = parseFloat(v); if (n >= 0) COST_CACHE_WRITE_PER_MTOK = n; }
       if (k === 'COST_CACHE_READ_PER_MTOK') { const n = parseFloat(v); if (n >= 0) COST_CACHE_READ_PER_MTOK = n; }
+      if (k === 'LOG_MAX_MB') { const n = parseInt(v); if (n >= 10) LOG_MAX_BYTES = n * 1024 * 1024; else if (n > 0) LOG('config', '-', `LOG_MAX_MB=${n} too small (minimum 10), keeping ${Math.round(LOG_MAX_BYTES / 1024 / 1024)}MB`); }
     }
     // Env vars override config file for hot-reloadable fields
     applyEnvOverrides();
@@ -204,6 +207,39 @@ const _recentAlerts = [];
 const MAX_RECENT_ALERTS = 10;
 const _recentInspections = [];
 const _recentCaptures = [];
+
+// Rolling log: when file exceeds LOG_MAX_BYTES, async stream-copy the newest half to a temp file,
+// then atomically rename it back. Aligns to line boundary so no partial JSON lines remain.
+// Uses streaming I/O to avoid allocating a giant buffer (no OOM risk).
+const _rotatingFiles = new Set();
+function appendWithRotation(filePath, data) {
+  fs.appendFile(filePath, data, () => {});
+  // Async rotation check — non-blocking, skips if already rotating this file
+  fs.stat(filePath, (err, stats) => {
+    if (err || stats.size < LOG_MAX_BYTES || _rotatingFiles.has(filePath)) return;
+    _rotatingFiles.add(filePath);
+    const keepFrom = stats.size - Math.floor(LOG_MAX_BYTES / 2);
+    const tmpPath = filePath + '.rotate-tmp';
+    const rs = fs.createReadStream(filePath, { start: keepFrom });
+    const ws = fs.createWriteStream(tmpPath);
+    let aligned = false;
+    rs.on('data', (chunk) => {
+      if (!aligned) {
+        const idx = chunk.indexOf(10);
+        if (idx >= 0) { aligned = true; ws.write(chunk.slice(idx + 1)); }
+      } else { ws.write(chunk); }
+    });
+    rs.on('end', () => ws.end(() => {
+      fs.rename(tmpPath, filePath, (renameErr) => {
+        _rotatingFiles.delete(filePath);
+        if (renameErr) { try { fs.unlinkSync(tmpPath); } catch (_) {} }
+        else { LOG('rotate', '-', `${path.basename(filePath)} exceeded ${Math.round(LOG_MAX_BYTES / 1024 / 1024)}MB, kept newest half`); }
+      });
+    }));
+    rs.on('error', () => { _rotatingFiles.delete(filePath); try { fs.unlinkSync(tmpPath); } catch (_) {} });
+    ws.on('error', () => { _rotatingFiles.delete(filePath); rs.destroy(); try { fs.unlinkSync(tmpPath); } catch (_) {} });
+  });
+}
 
 function pushAlert(entry) {
   _recentAlerts.push(entry);
@@ -331,7 +367,7 @@ function sendAlert(sid, type, detail) {
   pushAlert(entry);
 
   // Persist to file (async to avoid blocking event loop)
-  fs.appendFile(ALERTS_FILE, JSON.stringify(entry) + '\n', () => {});
+  appendWithRotation(ALERTS_FILE, JSON.stringify(entry) + '\n');
 
   // Route alert: webhook > feishu > log-only
   if (ALERT_WEBHOOK_URL) {
@@ -897,7 +933,7 @@ function recordInspection(req, raw, body, sid) {
     requestKind: sessionHint.kind
   };
   pushInspection(entry);
-  fs.appendFile(INSPECT_FILE, JSON.stringify(entry) + '\n', () => {});
+  appendWithRotation(INSPECT_FILE, JSON.stringify(entry) + '\n');
   LOG('inspect', sid || '-', JSON.stringify({
     path: entry.path,
     model: entry.model,
@@ -927,7 +963,7 @@ function recordFullCapture(req, raw, body, sid) {
     requestKind: sessionHint.kind
   };
   pushCapture(entry);
-  fs.appendFile(CAPTURE_FILE, JSON.stringify(entry) + '\n', () => {});
+  appendWithRotation(CAPTURE_FILE, JSON.stringify(entry) + '\n');
   LOG('capture', sid || '-', JSON.stringify({
     path: entry.path,
     bodyBytes: raw.length,
