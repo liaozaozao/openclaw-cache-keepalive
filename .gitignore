@@ -3,6 +3,7 @@ config.conf
 .inspect.jsonl
 .capture.jsonl
 .tmp-*
+*.rotate-tmp
 .name-cache/
 node_modules/
 .ace-tool/
