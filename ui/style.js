@@ -109,10 +109,10 @@ const STATUS_PAGE_STYLE = String.raw`
       position: sticky;
       top: 0;
       z-index: 20;
-      margin-bottom: 20px;
-      padding: 24px;
+      margin-bottom: 16px;
+      padding: 16px 20px;
       border: 1px solid var(--line);
-      border-radius: var(--radius-xl);
+      border-radius: var(--radius-lg);
       background:
         linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.01)),
         linear-gradient(180deg, rgba(8, 14, 22, 0.82), rgba(10, 18, 27, 0.92));
@@ -153,25 +153,26 @@ const STATUS_PAGE_STYLE = String.raw`
     .hero-grid {
       position: relative;
       z-index: 1;
-      grid-template-columns: minmax(0, 1.5fr) minmax(280px, 360px);
+      grid-template-columns: 1fr auto;
       align-items: start;
+      gap: 20px;
     }
 
     .hero-copy {
-      max-width: 780px;
+      max-width: none;
     }
 
     .eyebrow {
       display: inline-flex;
       align-items: center;
-      min-height: 30px;
-      margin-bottom: 14px;
-      padding: 6px 12px;
+      min-height: 24px;
+      margin-bottom: 6px;
+      padding: 3px 10px;
       border: 1px solid rgba(247, 194, 106, 0.22);
       border-radius: var(--radius-sm);
       background: rgba(247, 194, 106, 0.1);
       color: var(--warn);
-      font-size: 12px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.09em;
       text-transform: uppercase;
@@ -179,50 +180,49 @@ const STATUS_PAGE_STYLE = String.raw`
 
     h1 {
       margin: 0;
-      max-width: 11ch;
+      max-width: none;
       font-family: "Noto Serif SC", "Songti SC", serif;
-      font-size: clamp(34px, 5vw, 66px);
-      line-height: 0.96;
-      letter-spacing: -0.045em;
-      text-wrap: balance;
+      font-size: clamp(22px, 2.8vw, 32px);
+      line-height: 1.1;
+      letter-spacing: -0.035em;
     }
 
     .hero-copy p {
-      margin: 16px 0 0;
+      margin: 6px 0 0;
       max-width: 57ch;
       color: var(--text-muted);
-      font-size: 16px;
-      line-height: 1.78;
+      font-size: 13.5px;
+      line-height: 1.6;
     }
 
     .hero-actions {
       display: flex;
       flex-wrap: wrap;
-      gap: 10px;
-      margin-top: 20px;
+      gap: 8px;
+      margin-top: 12px;
     }
 
     .hero-side {
       display: grid;
-      gap: 12px;
+      gap: 6px;
       align-content: start;
+      width: 260px;
     }
 
     .lang-switch {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 6px;
-      padding: 4px;
+      gap: 4px;
+      padding: 3px;
       border: 1px solid var(--line);
       border-radius: var(--radius-sm);
       background: rgba(255, 255, 255, 0.03);
-      min-width: 224px;
     }
 
     .lang-chip {
       appearance: none;
-      min-height: 38px;
-      padding: 8px 12px;
+      min-height: 32px;
+      padding: 6px 10px;
       border: 1px solid transparent;
       border-radius: var(--radius-sm);
       background: transparent;
@@ -252,11 +252,11 @@ const STATUS_PAGE_STYLE = String.raw`
     .status-pill {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      min-height: 50px;
-      padding: 0 16px;
-      font-size: 14px;
-      font-weight: 700;
+      gap: 6px;
+      min-height: 28px;
+      padding: 0 10px;
+      font-size: 11.5px;
+      font-weight: 600;
     }
 
     .status-pill-muted {
@@ -265,29 +265,29 @@ const STATUS_PAGE_STYLE = String.raw`
 
     .status-dot {
       flex: 0 0 auto;
-      width: 10px;
-      height: 10px;
+      width: 7px;
+      height: 7px;
       border-radius: 50%;
       background: currentColor;
-      box-shadow: 0 0 18px currentColor;
+      box-shadow: 0 0 12px currentColor;
     }
 
     .search-wrap {
       display: grid;
-      gap: 6px;
-      padding: 12px 14px 14px;
+      gap: 2px;
+      padding: 6px 10px 8px;
     }
 
     .search-label {
       color: var(--text-faint);
-      font-size: 11px;
+      font-size: 10px;
       letter-spacing: 0.1em;
       text-transform: uppercase;
     }
 
     .search {
       width: 100%;
-      min-height: 42px;
+      min-height: 28px;
       padding: 0 2px;
       border: 0;
       background: transparent;
@@ -306,9 +306,9 @@ const STATUS_PAGE_STYLE = String.raw`
       flex-wrap: wrap;
       align-items: center;
       justify-content: space-between;
-      gap: 16px;
-      margin-top: 18px;
-      padding-top: 18px;
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 12px;
       border-top: 1px solid var(--line-soft);
     }
 
@@ -353,9 +353,9 @@ const STATUS_PAGE_STYLE = String.raw`
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      min-height: 40px;
-      padding: 0 16px;
-      font-size: 13.5px;
+      min-height: 34px;
+      padding: 0 14px;
+      font-size: 12.5px;
       font-weight: 700;
       text-decoration: none;
       cursor: pointer;
@@ -457,12 +457,12 @@ const STATUS_PAGE_STYLE = String.raw`
     }
 
     .stat-card {
-      min-height: 190px;
-      padding: 20px;
+      min-height: 100px;
+      padding: 12px 14px;
       display: flex;
       flex-direction: column;
       justify-content: space-between;
-      gap: 12px;
+      gap: 6px;
     }
 
     .stat-card::after,
@@ -497,18 +497,18 @@ const STATUS_PAGE_STYLE = String.raw`
     .stat-label,
     .section-label {
       color: var(--text-faint);
-      font-size: 11px;
+      font-size: 10px;
       font-weight: 700;
       letter-spacing: 0.1em;
       text-transform: uppercase;
     }
 
     .stat-value {
-      margin-top: 6px;
+      margin-top: 2px;
       font-family: "JetBrains Mono", "Cascadia Code", monospace;
-      font-size: clamp(28px, 3.6vw, 42px);
-      line-height: 1.04;
-      letter-spacing: -0.04em;
+      font-size: clamp(20px, 2.4vw, 28px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
       max-width: 12ch;
       word-break: break-word;
     }
@@ -517,10 +517,10 @@ const STATUS_PAGE_STYLE = String.raw`
       display: flex;
       flex-wrap: wrap;
       justify-content: space-between;
-      gap: 10px;
+      gap: 6px;
       color: var(--text-muted);
-      font-size: 13.5px;
-      line-height: 1.55;
+      font-size: 12px;
+      line-height: 1.45;
     }
 
     .section-head {
